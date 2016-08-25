@@ -1,4 +1,4 @@
 User-agent: *
 Disallow: 
 
-Sitemap: http://luyutommycool.github.io/sitemap.xml 
+Sitemap: https://luyutommycool.github.io/sitemap.xml 
