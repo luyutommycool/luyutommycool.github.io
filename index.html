@@ -9,13 +9,7 @@
   <meta name="author" content="TommyCool">
 
   
-  <meta name="description" content="＃我的第一个博客 1
-2
-3
-4
-5
-public class OctopressDemo { public static void main(String[] argv){ System.out.println(&quot;Hello World!&quot;); }
-} ">
+  <meta name="description" content="跨域问题的产生 &emsp;&emsp;随着微服务、分布式等架构体系的发展，很多人在传统web开发上会遇到很多跨域的问题，特别 是你的系统对接的服务不是你们自己公司的服务的时候，就更难办了。例如，用户要求所有厂家的文件服务都对应某一家厂家提供的服务，而这时这家厂家提供的仅仅是单纯的http服务， &hellip;">
   
 
   <!-- http://t.co/dKP3o1e -->
@@ -77,6 +71,286 @@ public class OctopressDemo { public static void main(String[] argv){ System.out.
       
   <header>
     
+      <h1 class="entry-title"><a href="/blog/2016/08/25/the-solution-of-distributed-file-upload-cross-domain/">分布式文件上传跨域解决方案</a></h1>
+    
+    
+      <p class="meta">
+        
+
+
+
+
+<time class='entry-date' datetime='2016-08-25T20:36:15+08:00'><span class='date'><span class='date-month'>Aug</span> <span class='date-day'>25</span><span class='date-suffix'>th</span>, <span class='date-year'>2016</span></span> <span class='time'>8:36 pm</span></time>
+        
+      </p>
+    
+  </header>
+
+
+  <div class="entry-content"><h2>跨域问题的产生</h2>
+
+<p>&emsp;&emsp;随着微服务、分布式等架构体系的发展，很多人在传统web开发上会遇到很多跨域的问题，特别 是你的系统对接的服务不是你们自己公司的服务的时候，就更难办了。例如，用户要求所有厂家的文件服务都对应某一家厂家提供的服务，而这时这家厂家提供的仅仅是单纯的http服务，只给了你一个地址url，外加一个范例贴图。如果你没有接触过跨域问题，想着大不了就是前端form提交的action地址变一下就可以了，那么前面会有个坑等着你，而且是看得见，摸不着的。
+&emsp;&emsp;下面是一个什么叫“看得见，摸不着”的具体描述：这里采用的是jquery form表单提交，原来url地址是本地服务，后改称第三方文件服务地址，提交后，始终进入不了success回调里，打开chrome调试，设了断点，显示的是这个样子：</p>
+
+<p><img src="/path/to/img.jpg" title="跨域返回信息" alt="cross-domain response" /></p>
+
+<p>你是不是很奇怪，怎么有返回，但就是回调函数没有值，我们再深挖一下，顺着回调往上走，我们可以追踪到jquery是怎么创建一个iframe去执行文件上传的，</p>
+
+<p><img src="/path/to/img.jpg" title="iframe代码" alt="iframe code" /></p>
+
+<p>调试的时候这里content()获取的是null，所以回调没有值，但是点source去看代码，发现里面是有值的，可以看一下，返回的responseStr已经在iframe里了</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='html'><span class='line'><span class="nt">&lt;table&gt;</span>aaa<span class="nt">&lt;/table&gt;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>&emsp;&emsp;这就解释了为什么repsonse有值，而回调没有值的问题，因为返回值已经传过来了，但是是在跨域的iframe里，通过content()方法是获取不了的，后来我也去网上找了很多，大部分都是改造response header，而且还有浏览器兼容性的问题，况且文件服务不是我们的，不可能去让厂家改的，磨了好半天，找到了一个解决问题的思路：请求提交到本地不变，文件存储过后，再由后台打包提交重新发起一次http post请求去对接文件服务url，在后台获取返回值，解析以后再传到前台，这样做还有个好处，即文件服务地址没有暴露在前端，而是配置在后端字典表，保证了安全，既然思路有了，就说一下怎么实现吧。</p>
+
+<h2>实现原理</h2>
+
+<p>   为了更直观，我直接上代码了，其实不是很难，核心代码就20几行。
+首先是controller层调用(使用的是spring mvc架构)，下面贴出代码片段：</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+</pre></td><td class='code'><pre><code class='java'><span class='line'><span class="nd">@RequestMapping</span><span class="o">(</span><span class="n">value</span> <span class="o">=</span> <span class="s">&quot;uploadFileTmpRemote&quot;</span><span class="o">,</span> <span class="n">method</span> <span class="o">=</span> <span class="n">RequestMethod</span><span class="o">.</span><span class="na">POST</span><span class="o">)</span>
+</span><span class='line'><span class="nd">@ResponseBody</span>
+</span><span class='line'><span class="kd">public</span> <span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="o">,</span> <span class="n">String</span><span class="o">&gt;</span> <span class="nf">uploadFileTmpRemote</span><span class="o">(</span><span class="n">MultipartHttpServletRequest</span> <span class="n">request</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">Exception</span> <span class="o">{</span>
+</span><span class='line'>    <span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="o">,</span> <span class="n">String</span><span class="o">&gt;</span> <span class="n">messageMap</span> <span class="o">=</span> <span class="k">new</span> <span class="n">HashMap</span><span class="o">&lt;</span><span class="n">String</span><span class="o">,</span> <span class="n">String</span><span class="o">&gt;();</span>
+</span><span class='line'>    <span class="c1">// 获取字典表文件服务地址</span>
+</span><span class='line'>    <span class="n">String</span> <span class="n">httpRemoteUrl</span> <span class="o">=</span> <span class="n">AppConfig</span><span class="o">.</span><span class="na">DICT_MAP_VALUE</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;httpRemoteUrl&quot;</span><span class="o">).</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;1&quot;</span><span class="o">);</span>
+</span><span class='line'>    <span class="k">if</span> <span class="o">(</span><span class="n">httpRemoteUrl</span> <span class="o">!=</span> <span class="kc">null</span> <span class="o">&amp;&amp;</span> <span class="o">!</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">httpRemoteUrl</span><span class="o">))</span> <span class="o">{</span>
+</span><span class='line'>        <span class="n">List</span><span class="o">&lt;</span><span class="n">MultipartFile</span><span class="o">&gt;</span> <span class="n">files</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="na">getFiles</span><span class="o">(</span><span class="s">&quot;fileList&quot;</span><span class="o">);</span>
+</span><span class='line'>        <span class="n">RemoteFileUpload</span> <span class="n">remoteFileUpload</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">RemoteFileUpload</span><span class="o">();</span>
+</span><span class='line'>        <span class="n">messageMap</span> <span class="o">=</span> <span class="n">remoteFileUpload</span><span class="o">.</span><span class="na">executeRequest</span><span class="o">(</span><span class="n">files</span><span class="o">,</span> <span class="n">httpRemoteUrl</span><span class="o">);</span>
+</span><span class='line'>    <span class="o">}</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">return</span> <span class="n">messageMap</span><span class="o">;</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>接下来是RemoteFileUpload核心实现</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+<span class='line-number'>53</span>
+<span class='line-number'>54</span>
+<span class='line-number'>55</span>
+<span class='line-number'>56</span>
+<span class='line-number'>57</span>
+<span class='line-number'>58</span>
+<span class='line-number'>59</span>
+<span class='line-number'>60</span>
+<span class='line-number'>61</span>
+<span class='line-number'>62</span>
+<span class='line-number'>63</span>
+<span class='line-number'>64</span>
+<span class='line-number'>65</span>
+<span class='line-number'>66</span>
+<span class='line-number'>67</span>
+<span class='line-number'>68</span>
+<span class='line-number'>69</span>
+<span class='line-number'>70</span>
+<span class='line-number'>71</span>
+<span class='line-number'>72</span>
+<span class='line-number'>73</span>
+<span class='line-number'>74</span>
+<span class='line-number'>75</span>
+<span class='line-number'>76</span>
+<span class='line-number'>77</span>
+<span class='line-number'>78</span>
+<span class='line-number'>79</span>
+<span class='line-number'>80</span>
+<span class='line-number'>81</span>
+<span class='line-number'>82</span>
+<span class='line-number'>83</span>
+<span class='line-number'>84</span>
+<span class='line-number'>85</span>
+<span class='line-number'>86</span>
+<span class='line-number'>87</span>
+<span class='line-number'>88</span>
+<span class='line-number'>89</span>
+<span class='line-number'>90</span>
+<span class='line-number'>91</span>
+<span class='line-number'>92</span>
+<span class='line-number'>93</span>
+<span class='line-number'>94</span>
+<span class='line-number'>95</span>
+</pre></td><td class='code'><pre><code class='java'><span class='line'><span class="kn">package</span> <span class="n">com</span><span class="o">.</span><span class="na">summer</span><span class="o">.</span><span class="na">web</span><span class="o">.</span><span class="na">util</span><span class="o">;</span>
+</span><span class='line'>
+</span><span class='line'><span class="kn">import</span> <span class="nn">java.io.ByteArrayOutputStream</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">java.io.File</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">java.io.InputStream</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">java.math.BigDecimal</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">java.util.Date</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">java.util.HashMap</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">java.util.List</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">java.util.Map</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.HttpEntity</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.HttpHost</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.HttpResponse</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.client.config.RequestConfig</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.client.methods.HttpPost</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.entity.mime.HttpMultipartMode</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.entity.mime.MultipartEntityBuilder</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.entity.mime.content.FileBody</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.impl.client.CloseableHttpClient</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.apache.http.impl.client.HttpClients</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">org.springframework.web.multipart.MultipartFile</span><span class="o">;</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">com.alibaba.fastjson.JSONObject</span><span class="o">;</span>
+</span><span class='line'>
+</span><span class='line'><span class="kd">public</span> <span class="kd">class</span> <span class="nc">RemoteFileUpload</span> <span class="o">{</span>
+</span><span class='line'>    <span class="cm">/*</span>
+</span><span class='line'><span class="cm">    *  @param files: form表单上传后获得的files(因为使用的是spring上传组件，所以是MultipartFile类型)</span>
+</span><span class='line'><span class="cm">    *  @param httpUrl: 文件服务url地址</span>
+</span><span class='line'><span class="cm">    */</span>
+</span><span class='line'>    <span class="kd">public</span> <span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="o">,</span> <span class="n">String</span><span class="o">&gt;</span> <span class="nf">executeRequest</span><span class="o">(</span><span class="n">List</span><span class="o">&lt;</span><span class="n">MultipartFile</span><span class="o">&gt;</span> <span class="n">files</span><span class="o">,</span> <span class="n">String</span> <span class="n">httpUrl</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">Exception</span> <span class="o">{</span>
+</span><span class='line'>        <span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="o">,</span> <span class="n">String</span><span class="o">&gt;</span> <span class="n">messageMap</span> <span class="o">=</span> <span class="k">new</span> <span class="n">HashMap</span><span class="o">&lt;</span><span class="n">String</span><span class="o">,</span> <span class="n">String</span><span class="o">&gt;();</span>
+</span><span class='line'>        <span class="n">CloseableHttpClient</span> <span class="n">httpclient</span> <span class="o">=</span> <span class="kc">null</span><span class="o">;</span>
+</span><span class='line'>        <span class="k">try</span> <span class="o">{</span>
+</span><span class='line'>            <span class="k">for</span> <span class="o">(</span><span class="n">MultipartFile</span> <span class="n">multipartFile</span> <span class="o">:</span> <span class="n">files</span><span class="o">)</span> <span class="o">{</span>
+</span><span class='line'>                <span class="k">if</span> <span class="o">(</span><span class="n">multipartFile</span><span class="o">.</span><span class="na">isEmpty</span><span class="o">())</span> <span class="o">{</span>
+</span><span class='line'>                    <span class="k">continue</span><span class="o">;</span>
+</span><span class='line'>                <span class="o">}</span>
+</span><span class='line'>
+</span><span class='line'>                <span class="n">String</span> <span class="n">nameFull</span> <span class="o">=</span> <span class="n">multipartFile</span><span class="o">.</span><span class="na">getOriginalFilename</span><span class="o">();</span>
+</span><span class='line'>                <span class="n">String</span> <span class="n">size</span> <span class="o">=</span> <span class="n">Long</span><span class="o">.</span><span class="na">toString</span><span class="o">(</span><span class="n">multipartFile</span><span class="o">.</span><span class="na">getSize</span><span class="o">());</span>
+</span><span class='line'>                <span class="n">String</span> <span class="n">name</span> <span class="o">=</span> <span class="n">nameFull</span><span class="o">.</span><span class="na">substring</span><span class="o">(</span><span class="mi">0</span><span class="o">,</span> <span class="n">nameFull</span><span class="o">.</span><span class="na">lastIndexOf</span><span class="o">(</span><span class="s">&quot;.&quot;</span><span class="o">));</span>
+</span><span class='line'>                <span class="n">String</span> <span class="n">type</span> <span class="o">=</span> <span class="n">nameFull</span><span class="o">.</span><span class="na">substring</span><span class="o">(</span><span class="n">nameFull</span><span class="o">.</span><span class="na">lastIndexOf</span><span class="o">(</span><span class="s">&quot;.&quot;</span><span class="o">)</span> <span class="o">+</span> <span class="mi">1</span><span class="o">);</span>
+</span><span class='line'>                <span class="n">String</span> <span class="n">tmpName</span> <span class="o">=</span> <span class="n">Long</span><span class="o">.</span><span class="na">toString</span><span class="o">(</span><span class="k">new</span> <span class="nf">Date</span><span class="o">().</span><span class="na">getTime</span><span class="o">())</span> <span class="o">+</span> <span class="s">&quot;.&quot;</span> <span class="o">+</span> <span class="n">type</span><span class="o">;</span>
+</span><span class='line'>
+</span><span class='line'>                <span class="n">multipartFile</span><span class="o">.</span><span class="na">transferTo</span><span class="o">(</span><span class="k">new</span> <span class="nf">File</span><span class="o">(</span><span class="n">AppConfig</span><span class="o">.</span><span class="na">tempPath</span><span class="o">,</span> <span class="n">tmpName</span><span class="o">));</span>
+</span><span class='line'>
+</span><span class='line'>                <span class="n">httpclient</span> <span class="o">=</span> <span class="n">HttpClients</span><span class="o">.</span><span class="na">createDefault</span><span class="o">();</span>
+</span><span class='line'>                <span class="c1">// 文件服务调用发送</span>
+</span><span class='line'>                <span class="n">HttpPost</span> <span class="n">httppost</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">HttpPost</span><span class="o">(</span><span class="n">httpUrl</span><span class="o">);</span>
+</span><span class='line'>
+</span><span class='line'>                <span class="c1">// 判断是否有代理配置，如果有去字典表读取，如果请求无需代理，可以忽略这段</span>
+</span><span class='line'>                <span class="k">if</span> <span class="o">(</span><span class="n">AppConfig</span><span class="o">.</span><span class="na">DICT_MAP_VALUE</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;proxyHttp&quot;</span><span class="o">)</span> <span class="o">!=</span> <span class="kc">null</span> <span class="o">&amp;&amp;</span> <span class="n">AppConfig</span><span class="o">.</span><span class="na">DICT_MAP_VALUE</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;localHostName&quot;</span><span class="o">)</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+</span><span class='line'>                    <span class="k">if</span><span class="o">(</span><span class="n">AppConfig</span><span class="o">.</span><span class="na">localHostName</span><span class="o">.</span><span class="na">indexOf</span><span class="o">(</span><span class="n">AppConfig</span><span class="o">.</span><span class="na">DICT_MAP_VALUE</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;localHostName&quot;</span><span class="o">).</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;1&quot;</span><span class="o">))</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="o">){</span>
+</span><span class='line'>                        <span class="n">String</span><span class="o">[]</span> <span class="n">proxyHttp</span> <span class="o">=</span> <span class="n">AppConfig</span><span class="o">.</span><span class="na">DICT_MAP_VALUE</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;proxyHttp&quot;</span><span class="o">).</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;1&quot;</span><span class="o">).</span><span class="na">split</span><span class="o">(</span><span class="s">&quot;:&quot;</span><span class="o">);</span>
+</span><span class='line'>                        <span class="n">HttpHost</span> <span class="n">proxy</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">HttpHost</span><span class="o">(</span><span class="n">proxyHttp</span><span class="o">[</span><span class="mi">0</span><span class="o">],</span> <span class="n">Integer</span><span class="o">.</span><span class="na">parseInt</span><span class="o">(</span><span class="n">proxyHttp</span><span class="o">[</span><span class="mi">1</span><span class="o">]),</span> <span class="s">&quot;http&quot;</span><span class="o">);</span>
+</span><span class='line'>                        <span class="n">RequestConfig</span> <span class="n">config</span> <span class="o">=</span> <span class="n">RequestConfig</span><span class="o">.</span><span class="na">custom</span><span class="o">().</span><span class="na">setProxy</span><span class="o">(</span><span class="n">proxy</span><span class="o">).</span><span class="na">build</span><span class="o">();</span>
+</span><span class='line'>                        <span class="n">httppost</span><span class="o">.</span><span class="na">setConfig</span><span class="o">(</span><span class="n">config</span><span class="o">);</span>
+</span><span class='line'>                    <span class="o">}</span>
+</span><span class='line'>                <span class="o">}</span>
+</span><span class='line'>
+</span><span class='line'>                <span class="n">FileBody</span> <span class="n">bin</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">FileBody</span><span class="o">(</span><span class="k">new</span> <span class="nf">File</span><span class="o">(</span><span class="n">AppConfig</span><span class="o">.</span><span class="na">tempPath</span><span class="o">,</span> <span class="n">tmpName</span><span class="o">));</span>
+</span><span class='line'>                <span class="n">MultipartEntityBuilder</span> <span class="n">multipartEntity</span> <span class="o">=</span> <span class="n">MultipartEntityBuilder</span><span class="o">.</span><span class="na">create</span><span class="o">();</span>
+</span><span class='line'>                <span class="n">multipartEntity</span><span class="o">.</span><span class="na">setMode</span><span class="o">(</span><span class="n">HttpMultipartMode</span><span class="o">.</span><span class="na">BROWSER_COMPATIBLE</span><span class="o">);</span>
+</span><span class='line'>                <span class="n">multipartEntity</span><span class="o">.</span><span class="na">addPart</span><span class="o">(</span><span class="s">&quot;file&quot;</span><span class="o">,</span> <span class="n">bin</span><span class="o">);</span>
+</span><span class='line'>                <span class="n">httppost</span><span class="o">.</span><span class="na">setEntity</span><span class="o">(</span><span class="n">multipartEntity</span><span class="o">.</span><span class="na">build</span><span class="o">());</span>
+</span><span class='line'>
+</span><span class='line'>                <span class="n">HttpResponse</span> <span class="n">response</span> <span class="o">=</span> <span class="n">httpclient</span><span class="o">.</span><span class="na">execute</span><span class="o">(</span><span class="n">httppost</span><span class="o">);</span>
+</span><span class='line'>                <span class="n">HttpEntity</span> <span class="n">entity</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="na">getEntity</span><span class="o">();</span>
+</span><span class='line'>                <span class="n">InputStream</span> <span class="n">inStream</span> <span class="o">=</span> <span class="n">entity</span><span class="o">.</span><span class="na">getContent</span><span class="o">();</span>
+</span><span class='line'>
+</span><span class='line'>                <span class="n">ByteArrayOutputStream</span> <span class="n">outSteam</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">ByteArrayOutputStream</span><span class="o">();</span>
+</span><span class='line'>                <span class="kt">byte</span><span class="o">[]</span> <span class="n">buffer</span> <span class="o">=</span> <span class="k">new</span> <span class="kt">byte</span><span class="o">[</span><span class="mi">1024</span><span class="o">];</span>
+</span><span class='line'>                <span class="kt">int</span> <span class="n">len</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="o">;</span>
+</span><span class='line'>                <span class="k">while</span> <span class="o">((</span><span class="n">len</span> <span class="o">=</span> <span class="n">inStream</span><span class="o">.</span><span class="na">read</span><span class="o">(</span><span class="n">buffer</span><span class="o">))</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="o">)</span> <span class="o">{</span>
+</span><span class='line'>                    <span class="n">outSteam</span><span class="o">.</span><span class="na">write</span><span class="o">(</span><span class="n">buffer</span><span class="o">,</span> <span class="mi">0</span><span class="o">,</span> <span class="n">len</span><span class="o">);</span>
+</span><span class='line'>                <span class="o">}</span>
+</span><span class='line'>                <span class="n">outSteam</span><span class="o">.</span><span class="na">close</span><span class="o">();</span>
+</span><span class='line'>
+</span><span class='line'>                <span class="n">JSONObject</span> <span class="n">jsonObj</span> <span class="o">=</span> <span class="n">JSONObject</span><span class="o">.</span><span class="na">parseObject</span><span class="o">(</span><span class="k">new</span> <span class="nf">String</span><span class="o">(</span><span class="n">outSteam</span><span class="o">.</span><span class="na">toByteArray</span><span class="o">()));</span>
+</span><span class='line'>                <span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="o">,</span> <span class="n">String</span><span class="o">&gt;</span> <span class="n">responsMap</span> <span class="o">=</span> <span class="o">(</span><span class="n">Map</span><span class="o">)</span> <span class="n">jsonObj</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;responseUpload&quot;</span><span class="o">);</span>
+</span><span class='line'>
+</span><span class='line'>                <span class="n">messageMap</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="s">&quot;name&quot;</span><span class="o">,</span> <span class="n">name</span><span class="o">);</span>
+</span><span class='line'>                <span class="n">messageMap</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="s">&quot;type&quot;</span><span class="o">,</span> <span class="n">type</span><span class="o">);</span>
+</span><span class='line'>                <span class="n">messageMap</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="s">&quot;size&quot;</span><span class="o">,</span> <span class="k">new</span> <span class="nf">BigDecimal</span><span class="o">(</span><span class="n">size</span><span class="o">).</span><span class="na">divide</span><span class="o">(</span><span class="k">new</span> <span class="nf">BigDecimal</span><span class="o">(</span><span class="s">&quot;1000&quot;</span><span class="o">))</span>
+</span><span class='line'>                        <span class="o">.</span><span class="na">setScale</span><span class="o">(</span><span class="mi">0</span><span class="o">,</span> <span class="n">BigDecimal</span><span class="o">.</span><span class="na">ROUND_HALF_UP</span><span class="o">).</span><span class="na">toString</span><span class="o">()</span> <span class="o">+</span> <span class="s">&quot;KB&quot;</span><span class="o">);</span>
+</span><span class='line'>                <span class="n">messageMap</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="s">&quot;tmpName&quot;</span><span class="o">,</span> <span class="n">responsMap</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;fileName&quot;</span><span class="o">));</span>
+</span><span class='line'>                <span class="n">messageMap</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="s">&quot;fileUrl&quot;</span><span class="o">,</span> <span class="n">responsMap</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">&quot;fileUrl&quot;</span><span class="o">));</span>
+</span><span class='line'>            <span class="o">}</span>
+</span><span class='line'>        <span class="o">}</span> <span class="k">finally</span> <span class="o">{</span>
+</span><span class='line'>            <span class="n">httpclient</span><span class="o">.</span><span class="na">close</span><span class="o">();</span>
+</span><span class='line'>        <span class="o">}</span>
+</span><span class='line'>
+</span><span class='line'>        <span class="k">return</span> <span class="n">messageMap</span><span class="o">;</span>
+</span><span class='line'>    <span class="o">}</span>
+</span><span class='line'>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>以上代码已经很清晰的给出了解决方案，而且如果你需代理还可以简单的配置一下即可，如果还有什么不清楚的地方，可以留言</p>
+</div>
+  
+  
+
+
+    </article>
+  
+  
+    <article>
+      
+  <header>
+    
       <h1 class="entry-title"><a href="/blog/2016/08/25/my-first-blog/">My First Blog</a></h1>
     
     
@@ -125,6 +399,10 @@ public class OctopressDemo { public static void main(String[] argv){ System.out.
     <section>
   <h1>Recent Posts</h1>
   <ul id="recent_posts">
+    
+      <li class="post">
+        <a href="/blog/2016/08/25/the-solution-of-distributed-file-upload-cross-domain/">分布式文件上传跨域解决方案</a>
+      </li>
     
       <li class="post">
         <a href="/blog/2016/08/25/my-first-blog/">My First Blog</a>
