@@ -89,8 +89,7 @@
 
   <div class="entry-content"><h2>跨域问题的产生</h2>
 
-<p>&emsp;&emsp;随着微服务、分布式等架构体系的发展，很多人在传统 web 开发上会遇到很多跨域的问题，特别是你的系统对接的服务不是你们自己公司的服务的时候，就更难办了。例如，用户要求所有厂家的文件服务都对应某一家厂家提供的服务，而这时这家厂家提供的仅仅是单纯的 HTTP 服务，只给了你一个地址 URL ，外加一个范例贴图。如果你没有接触过跨域问题，想着大不了就是前端 form 提交的 action 地址变一下就可以了，那么前面会有个坑等着你，而且是看得见，摸不着的。
-&emsp;&emsp;下面是一个什么叫“看得见，摸不着”的具体描述：这里采用的是 jquery form 表单提交，</p>
+<p>&emsp;&emsp;随着微服务、分布式等架构体系的发展，很多人在传统 web 开发上会遇到很多跨域的问题，特别是你的系统对接的服务不是你们自己公司的服务的时候，就更难办了。例如，用户要求所有厂家的文件服务都对应某一家厂家提供的服务，而这时这家厂家提供的仅仅是单纯的 HTTP 服务，只给了你一个地址 URL ，外加一个范例贴图。如果你没有接触过跨域问题，想着大不了就是前端 form 提交的 action 地址变一下就可以了，那么前面会有个坑等着你，而且是看得见，摸不着的。下面是具体描述：这里采用的是 jquery form 表单提交，</p>
 
 <figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
@@ -113,15 +112,15 @@
 </span></code></pre></td></tr></table></div></figure>
 
 
-<p>原来 URL 地址是本地服务，后改称第三方文件服务地址，提交后，始终进入不了 success 回调里，打开 Chrome 调试，设了断点，显示的是这个样子：</p>
+<p>原来 URL 地址是本地服务，后改为第三方文件服务地址，提交后，始终进入不了 success 回调里，打开 Chrome 调试，设了断点，显示的是这个样子：</p>
 
-<p><img src="/image/blog/20160826001.png" title="跨域返回信息" alt="cross-domain response" /></p>
+<p><img src="/images/blog/20160826001.png" title="跨域返回信息" alt="cross-domain response" /></p>
 
 <p>你是不是很奇怪，怎么有返回，但就是回调函数没有值，我们再深挖一下，顺着回调往上走，我们可以追踪到jquery是怎么创建一个iframe去执行文件上传的，</p>
 
-<p><img src="/image/blog/20160826002.png" title="iframe代码" alt="iframe code" /></p>
+<p><img src="/images/blog/20160826002.png" title="iframe代码" alt="iframe code" /></p>
 
-<p>调试的时候这里 f.contents() 获取的是null，导致 .find(&ldquo;body&rdquo;) 为 undefined ，所以回调没有值，但是点 Elements 查看后发现里面是有值的，可以看一下，返回的responseStr已经在iframe里了</p>
+<p>调试的时候这里 f.contents() 获取的是null，导致 .find(&ldquo;body&rdquo;) 为 undefined ，所以回调没有值，但是点 Elements 查看后发现里面是有值的，可以看一下，返回的 responseStr 已经在 iframe 里了</p>
 
 <figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
