@@ -4,7 +4,7 @@
   <title><![CDATA[TommyCool博客]]></title>
   <link href="https://luyutommycool.github.io/atom.xml" rel="self"/>
   <link href="https://luyutommycool.github.io/"/>
-  <updated>2016-08-26T10:53:43+08:00</updated>
+  <updated>2016-09-07T00:08:48+08:00</updated>
   <id>https://luyutommycool.github.io/</id>
   <author>
     <name><![CDATA[TommyCool]]></name>
@@ -12,6 +12,361 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[在 Bootstraptable 插件基础上新增可编辑行]]></title>
+    <link href="https://luyutommycool.github.io/blog/2016/09/06/add-edit-row-for-bootstraptable-plugin/"/>
+    <updated>2016-09-06T22:33:04+08:00</updated>
+    <id>https://luyutommycool.github.io/blog/2016/09/06/add-edit-row-for-bootstraptable-plugin</id>
+    <content type="html"><![CDATA[<h2>为什么调用 bootstraptable 原生方法会有问题</h2>
+
+<p>&emsp;&emsp;首先我必须肯定， bootstraptable 是一款很强大的基于 bootstrap 的插件，下载它的 <a href="https://github.com/wenzhixin/bootstrap-table">源码</a> 后，你可以学到很多，开源真的很好。好了，我们回到怎么动态添加可编辑行的问题上，你可以在它的 <a href="http://bootstrap-table.wenzhixin.net.cn/documentation/">说明文档</a> 上很容易就找到动态增加行的方法， <img src="https://luyutommycool.github.io/images/blog/20160906001.png" title="源码动态增加行的方法" alt="source insertRow" /> 于是我们欢欣鼓舞的去使用了，效果很好， <img src="https://luyutommycool.github.io/images/blog/20160906002.png" title="使用API方法" alt="API method show" /> 但当我们填好这一行的内容后，再加一行的时候，坑爹的事情发生了，第二个新增可编辑行把第一个给还原了，即变成最初新增编辑行的初始状态，一开始百思不得其解，后来打开源码一看(开源就是好啊)，发现是这里的问题</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='javascript'><span class='line'><span class="nx">BootstrapTable</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">insertRow</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">params</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>        <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">params</span><span class="p">.</span><span class="nx">hasOwnProperty</span><span class="p">(</span><span class="s1">&#39;index&#39;</span><span class="p">)</span> <span class="o">||</span> <span class="o">!</span><span class="nx">params</span><span class="p">.</span><span class="nx">hasOwnProperty</span><span class="p">(</span><span class="s1">&#39;row&#39;</span><span class="p">))</span> <span class="p">{</span>
+</span><span class='line'>            <span class="k">return</span><span class="p">;</span>
+</span><span class='line'>        <span class="p">}</span>
+</span><span class='line'>        <span class="k">this</span><span class="p">.</span><span class="nx">data</span><span class="p">.</span><span class="nx">splice</span><span class="p">(</span><span class="nx">params</span><span class="p">.</span><span class="nx">index</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="nx">params</span><span class="p">.</span><span class="nx">row</span><span class="p">);</span>
+</span><span class='line'>        <span class="c1">// 调用 initSearch() 重新把 this.options.data 数据初始化了</span>
+</span><span class='line'>        <span class="k">this</span><span class="p">.</span><span class="nx">initSearch</span><span class="p">();</span>
+</span><span class='line'>        <span class="k">this</span><span class="p">.</span><span class="nx">initPagination</span><span class="p">();</span>
+</span><span class='line'>        <span class="k">this</span><span class="p">.</span><span class="nx">initSort</span><span class="p">();</span>
+</span><span class='line'>        <span class="k">this</span><span class="p">.</span><span class="nx">initBody</span><span class="p">(</span><span class="kc">true</span><span class="p">);</span>
+</span><span class='line'>    <span class="p">};</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>this.initSearch() 重新把 this.options.data 数据初始化了，因为我们是在动态编辑行的文本框里填写的内容，这个内容并没有同步到 this.options.data 里，所以调用 this.initSearch(); 这个方法后，被还原也是板上钉钉的事了。既然我们知道了原因，那就开动脑筋去实践解决方案。</p>
+
+<h2>怎么解决</h2>
+
+<p>&emsp;&emsp;我选择的方法是从根上解决，在填写动态增加可编辑行的文本或下拉内容时加上 onchange 事件，将填好的内容，同步更新到 this.options.data 里，这样下次新增可编辑行的时候就不会还原成初始状态了。下面我附上源码</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+</pre></td><td class='code'><pre><code class='html'><span class='line'>// 这是bootstraptable代码部分
+</span><span class='line'><span class="nt">&lt;table</span> <span class="na">id=</span><span class="s">&quot;dbtableDefTb&quot;</span> <span class="na">data-toggle=</span><span class="s">&quot;table&quot;</span> <span class="na">data-toolbar=</span><span class="s">&quot;#toolbar&quot;</span>
+</span><span class='line'>           <span class="na">data-search=</span><span class="s">&quot;true&quot;</span>
+</span><span class='line'>           <span class="na">data-show-refresh=</span><span class="s">&quot;true&quot;</span>
+</span><span class='line'>           <span class="na">data-show-toggle=</span><span class="s">&quot;true&quot;</span>
+</span><span class='line'>           <span class="na">data-show-columns=</span><span class="s">&quot;true&quot;</span>
+</span><span class='line'>           <span class="na">data-show-export=</span><span class="s">&quot;true&quot;</span>
+</span><span class='line'>           <span class="na">data-detail-view=</span><span class="s">&quot;true&quot;</span>
+</span><span class='line'>           <span class="na">data-detail-formatter=</span><span class="s">&quot;detailFormatter&quot;</span>
+</span><span class='line'>           <span class="na">data-pagination=</span><span class="s">&quot;true&quot;</span>
+</span><span class='line'>           <span class="na">data-page-size=</span><span class="s">&quot;50&quot;</span>
+</span><span class='line'>           <span class="na">data-page-list=</span><span class="s">&quot;[50, 100, ALL]&quot;</span>
+</span><span class='line'>           <span class="na">data-show-footer=</span><span class="s">&quot;false&quot;</span>
+</span><span class='line'>           <span class="na">data-side-pagination=</span><span class="s">&quot;server&quot;</span>
+</span><span class='line'>           <span class="na">data-url=</span><span class="s">&quot;${pageContext.request.contextPath}/dbtableDef/select/cols.oem&quot;</span><span class="nt">&gt;</span>
+</span><span class='line'>        <span class="nt">&lt;thead&gt;</span>
+</span><span class='line'>        <span class="nt">&lt;tr&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;&quot;</span> <span class="na">data-checkbox=</span><span class="s">&quot;true&quot;</span><span class="nt">&gt;&lt;/th&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;&quot;</span> <span class="na">data-formatter=</span><span class="s">&quot;viewIndex&quot;</span><span class="nt">&gt;</span>序号<span class="nt">&lt;/th&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;&quot;</span> <span class="na">data-formatter=</span><span class="s">&quot;viewOptions&quot;</span><span class="nt">&gt;</span>操作<span class="nt">&lt;/th&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;dbColName&quot;</span> <span class="na">data-formatter=</span><span class="s">&quot;editCol&quot;</span><span class="nt">&gt;</span>数据表字段名称<span class="nt">&lt;/th&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;mdColName&quot;</span> <span class="na">data-formatter=</span><span class="s">&quot;editCol&quot;</span><span class="nt">&gt;</span>模型表字段名称<span class="nt">&lt;/th&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;dataType&quot;</span> <span class="na">data-formatter=</span><span class="s">&quot;editColDataType&quot;</span><span class="nt">&gt;</span>数据类型<span class="nt">&lt;/th&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;dataTypeLen&quot;</span> <span class="na">data-formatter=</span><span class="s">&quot;editCol&quot;</span><span class="nt">&gt;</span>数据长度<span class="nt">&lt;/th&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;isNull&quot;</span> <span class="na">data-formatter=</span><span class="s">&quot;editColIsNull&quot;</span><span class="nt">&gt;</span>是否可空<span class="nt">&lt;/th&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;colDescribe&quot;</span> <span class="na">data-formatter=</span><span class="s">&quot;editCol&quot;</span><span class="nt">&gt;</span>描述<span class="nt">&lt;/th&gt;</span>
+</span><span class='line'>            <span class="nt">&lt;th</span> <span class="na">data-field=</span><span class="s">&quot;orderBy&quot;</span> <span class="na">data-formatter=</span><span class="s">&quot;editCol&quot;</span><span class="nt">&gt;</span>排序值<span class="nt">&lt;/th&gt;</span>
+</span><span class='line'>        <span class="nt">&lt;/tr&gt;</span>
+</span><span class='line'>        <span class="nt">&lt;/thead&gt;</span>
+</span><span class='line'>    <span class="nt">&lt;/table&gt;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>上面的这些函数，在下面的代码里都可以找到对应的出处</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+<span class='line-number'>53</span>
+<span class='line-number'>54</span>
+<span class='line-number'>55</span>
+<span class='line-number'>56</span>
+<span class='line-number'>57</span>
+<span class='line-number'>58</span>
+<span class='line-number'>59</span>
+</pre></td><td class='code'><pre><code class='javascript'><span class='line'><span class="kd">function</span> <span class="nx">editCol</span><span class="p">(</span><span class="nx">value</span><span class="p">,</span> <span class="nx">row</span><span class="p">,</span> <span class="nx">index</span><span class="p">,</span> <span class="nx">key</span><span class="p">){</span>
+</span><span class='line'>    <span class="k">return</span> <span class="s2">&quot;&lt;div&gt;&lt;input type=\&quot;text\&quot; value=\&quot;&quot;</span> <span class="o">+</span> <span class="nx">value</span> <span class="o">+</span> <span class="s2">&quot;\&quot; onchange=&#39;reloadRowData($(this), &quot;</span> <span class="o">+</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">row</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;, \&quot;&quot;</span> <span class="o">+</span> <span class="nx">key</span> <span class="o">+</span> <span class="s2">&quot;\&quot;, &quot;</span> <span class="o">+</span> <span class="nx">index</span> <span class="o">+</span> <span class="s2">&quot;)&#39; /&gt;&lt;/div&gt;&quot;</span><span class="p">;</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'><span class="kd">function</span> <span class="nx">editColDataType</span><span class="p">(</span><span class="nx">value</span><span class="p">,</span> <span class="nx">row</span><span class="p">,</span> <span class="nx">index</span><span class="p">,</span> <span class="nx">key</span><span class="p">){</span>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">selectNotNullStr</span> <span class="o">=</span> <span class="s1">&#39;selected=&quot;selected&quot;&#39;</span><span class="p">;</span>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">selectNullStr</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span><span class="p">;</span>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">html</span> <span class="o">=</span> <span class="p">[];</span>
+</span><span class='line'>    <span class="nx">html</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="s2">&quot;&lt;select onchange=&#39;reloadRowData($(this), &quot;</span> <span class="o">+</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">row</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;, \&quot;&quot;</span> <span class="o">+</span> <span class="nx">key</span> <span class="o">+</span> <span class="s2">&quot;\&quot;, &quot;</span> <span class="o">+</span> <span class="nx">index</span> <span class="o">+</span> <span class="s2">&quot;)&#39;&gt;&quot;</span><span class="p">);</span>
+</span><span class='line'>    <span class="c1">// dataTypeSelect 是在加载页面的时候用 ajax 到后台取出的值，作为这个页面的全局变量赋给了 dataTypeSelect </span>
+</span><span class='line'>    <span class="nx">$</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">dataTypeSelect</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">index</span><span class="p">,</span> <span class="nx">content</span><span class="p">){</span>
+</span><span class='line'>        <span class="nx">html</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="s1">&#39;&lt;option value=&quot;&#39;</span> <span class="o">+</span> <span class="nx">content</span><span class="p">.</span><span class="nx">id</span> <span class="o">+</span> <span class="s1">&#39;&quot; &#39;</span> <span class="o">+</span> <span class="p">(</span><span class="nx">value</span><span class="o">==</span><span class="nx">content</span><span class="p">.</span><span class="nx">id</span> <span class="o">?</span> <span class="nx">selectNotNullStr</span> <span class="o">:</span> <span class="nx">selectNullStr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;&gt;&#39;</span> <span class="o">+</span> <span class="nx">content</span><span class="p">.</span><span class="nx">text</span> <span class="o">+</span> <span class="s1">&#39;&lt;/option&gt;&#39;</span><span class="p">);</span>
+</span><span class='line'>    <span class="p">});</span>
+</span><span class='line'>    <span class="nx">html</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="s1">&#39;&lt;/select&gt;&#39;</span><span class="p">);</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">return</span> <span class="nx">html</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">);</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'><span class="kd">function</span> <span class="nx">editColIsNull</span><span class="p">(</span><span class="nx">value</span><span class="p">,</span> <span class="nx">row</span><span class="p">,</span> <span class="nx">index</span><span class="p">,</span> <span class="nx">key</span><span class="p">){</span>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">selectNotNullStr</span> <span class="o">=</span> <span class="s1">&#39;selected=&quot;selected&quot;&#39;</span><span class="p">;</span>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">selectNullStr</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span><span class="p">;</span>
+</span><span class='line'>    <span class="k">return</span> <span class="p">[</span>
+</span><span class='line'>            <span class="s2">&quot;&lt;select onchange=&#39;reloadRowData($(this), &quot;</span> <span class="o">+</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">row</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;, \&quot;&quot;</span> <span class="o">+</span> <span class="nx">key</span> <span class="o">+</span> <span class="s2">&quot;\&quot;, &quot;</span> <span class="o">+</span> <span class="nx">index</span> <span class="o">+</span> <span class="s2">&quot;)&#39;&gt;&quot;</span><span class="p">,</span>
+</span><span class='line'>            <span class="s1">&#39;&lt;option value=&quot;1&quot; &#39;</span> <span class="o">+</span> <span class="p">(</span><span class="nx">value</span><span class="o">==</span><span class="mi">1</span> <span class="o">?</span> <span class="nx">selectNotNullStr</span> <span class="o">:</span> <span class="nx">selectNullStr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;&gt;可以为空&lt;/option&gt;&#39;</span><span class="p">,</span>
+</span><span class='line'>            <span class="s1">&#39;&lt;option value=&quot;0&quot; &#39;</span> <span class="o">+</span> <span class="p">(</span><span class="nx">value</span><span class="o">==</span><span class="mi">0</span> <span class="o">?</span> <span class="nx">selectNotNullStr</span> <span class="o">:</span> <span class="nx">selectNullStr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;&gt;不可为空&lt;/option&gt;&#39;</span><span class="p">,</span>
+</span><span class='line'>            <span class="s1">&#39;&lt;/select&gt;&#39;</span>
+</span><span class='line'>        <span class="p">].</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">);</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'><span class="kd">function</span> <span class="nx">viewIndex</span><span class="p">(</span><span class="nx">value</span><span class="p">,</span> <span class="nx">row</span><span class="p">,</span> <span class="nx">index</span><span class="p">){</span>
+</span><span class='line'>    <span class="k">return</span> <span class="s1">&#39;&lt;div&gt;&#39;</span> <span class="o">+</span> <span class="p">(</span><span class="nx">index</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;&lt;/div&gt;&#39;</span><span class="p">;</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'><span class="c1">// 改变 input 编辑框值时，更新 data 数据，便于新增行时原来填写好的数据不会被新增行强制覆盖</span>
+</span><span class='line'><span class="kd">function</span> <span class="nx">reloadRowData</span><span class="p">(</span><span class="nx">obj</span><span class="p">,</span> <span class="nx">row</span><span class="p">,</span> <span class="nx">key</span><span class="p">,</span> <span class="nx">index</span><span class="p">){</span>
+</span><span class='line'>    <span class="nx">row</span><span class="p">[</span><span class="nx">key</span><span class="p">]</span> <span class="o">=</span> <span class="nx">obj</span><span class="p">.</span><span class="nx">val</span><span class="p">();</span>
+</span><span class='line'>    <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;#dbtableDefTb&#39;</span><span class="p">).</span><span class="nx">bootstrapTable</span><span class="p">(</span><span class="s1">&#39;getOptions&#39;</span><span class="p">).</span><span class="nx">data</span><span class="p">.</span><span class="nx">splice</span><span class="p">(</span><span class="nx">index</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="nx">row</span><span class="p">);</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'><span class="kd">function</span> <span class="nx">viewOptions</span><span class="p">(</span><span class="nx">value</span><span class="p">,</span> <span class="nx">row</span><span class="p">,</span> <span class="nx">index</span><span class="p">){</span>
+</span><span class='line'>    <span class="k">return</span> <span class="p">[</span>
+</span><span class='line'>            <span class="s2">&quot;&lt;a class=\&quot;like\&quot; href=&#39;javascript:addRow(&quot;</span> <span class="o">+</span> <span class="nx">index</span> <span class="o">+</span> <span class="s2">&quot;, &quot;</span> <span class="o">+</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">row</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;)&#39; title=\&quot;新增行\&quot;&gt;&quot;</span><span class="p">,</span>
+</span><span class='line'>            <span class="s1">&#39;&lt;i class=&quot;glyphicon glyphicon-plus&quot;&gt;&lt;/i&gt;&#39;</span><span class="p">,</span>
+</span><span class='line'>            <span class="s1">&#39;&lt;/a&gt;  &#39;</span><span class="p">,</span>
+</span><span class='line'>            <span class="s1">&#39;&lt;a class=&quot;remove&quot; href=&quot;javascript:removeRow(\&#39;&#39;</span> <span class="o">+</span> <span class="nx">row</span><span class="p">.</span><span class="nx">dbColName</span> <span class="o">+</span> <span class="s1">&#39;\&#39;)&quot; title=&quot;删除行&quot;&gt;&#39;</span><span class="p">,</span>
+</span><span class='line'>            <span class="s1">&#39;&lt;i class=&quot;glyphicon glyphicon-remove&quot;&gt;&lt;/i&gt;&#39;</span><span class="p">,</span>
+</span><span class='line'>            <span class="s1">&#39;&lt;/a&gt;&#39;</span>
+</span><span class='line'>        <span class="p">].</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">);</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'><span class="kd">function</span> <span class="nx">addRow</span><span class="p">(</span><span class="nx">insertIndex</span><span class="p">,</span> <span class="nx">rowObj</span><span class="p">){</span>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">insertRow</span> <span class="o">=</span> <span class="nx">rowObj</span><span class="p">;</span>
+</span><span class='line'>    <span class="nx">$</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">insertRow</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">name</span><span class="p">,</span> <span class="nx">value</span><span class="p">){</span>
+</span><span class='line'>        <span class="nx">insertRow</span><span class="p">[</span><span class="nx">name</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span><span class="p">;</span>
+</span><span class='line'>    <span class="p">});</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">params</span> <span class="o">=</span> <span class="p">{</span><span class="nx">index</span><span class="o">:</span><span class="nx">insertIndex</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="nx">row</span><span class="o">:</span><span class="nx">insertRow</span><span class="p">};</span>
+</span><span class='line'>    <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;#dbtableDefTb&#39;</span><span class="p">).</span><span class="nx">bootstrapTable</span><span class="p">(</span><span class="s1">&#39;insertRow&#39;</span><span class="p">,</span> <span class="nx">params</span><span class="p">);</span>
+</span><span class='line'><span class="p">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>细心的朋友会发现， bootstraptable documentation 描述的 column method ，在 data-formatter 回调函数执行的时候是只有三个参数的 <img src="https://luyutommycool.github.io/images/blog/20160906003.png" title="源码格式化回调函数" alt="source formatter" /> ，怎么我这里 function editColIsNull(value, row, index, key) 是四个参数，那个 key 是哪里来的？答案就是，这是我为了实现方便，改了 bootstraptable 源码，</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='javascript'><span class='line'><span class="c1">// 添加 field 参数给 formatters 属性</span>
+</span><span class='line'><span class="nx">value</span> <span class="o">=</span> <span class="nx">calculateObjectValue</span><span class="p">(</span><span class="nx">column</span><span class="p">,</span>
+</span><span class='line'>    <span class="nx">that</span><span class="p">.</span><span class="nx">header</span><span class="p">.</span><span class="nx">formatters</span><span class="p">[</span><span class="nx">j</span><span class="p">],</span> <span class="p">[</span><span class="nx">value</span><span class="p">,</span> <span class="nx">item</span><span class="p">,</span> <span class="nx">i</span><span class="p">,</span> <span class="nx">field</span><span class="p">],</span> <span class="nx">value</span><span class="p">);</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>以上代码写好后，再去新增就不会有问题了。</p>
+
+<h2>额外的好处</h2>
+
+<p>&emsp;&emsp;因为是动态编辑行，所以在我们编辑好后，需提交后台保存的时候，如果按传统的模式，我们还需逐个迭代这个 $(&lsquo;#dbtableDefTb&rsquo;) 去把填好的内容打包，在后台再解包，很多不优雅的代码，但是通过在编辑的时候加入 onchange 事件，基本上就是实时更新 table data 数据，因为 data 天然就是 json 数据，所以我们在提交的
+时候不用做什么处理，就可以直接提交</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+</pre></td><td class='code'><pre><code class='javascript'><span class='line'><span class="kd">function</span> <span class="nx">addModel</span><span class="p">(){</span>
+</span><span class='line'>    <span class="c1">// $(&#39;#qry_db_form&#39;) 是主表的 form 数据，通过 serializeObject() 方法转换成对象</span>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">addObj</span> <span class="o">=</span> <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;#qry_db_form&#39;</span><span class="p">).</span><span class="nx">serializeObject</span><span class="p">();</span>
+</span><span class='line'>    <span class="c1">// 在 addObj 对象里添加名称为 hiddenDbtableColDefs 数组，即为 bootstraptable data 数组对象</span>
+</span><span class='line'>    <span class="nx">addObj</span><span class="p">[</span><span class="s1">&#39;hiddenDbtableColDefs&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nx">$</span><span class="p">(</span><span class="s1">&#39;#dbtableDefTb&#39;</span><span class="p">).</span><span class="nx">bootstrapTable</span><span class="p">(</span><span class="s1">&#39;getData&#39;</span><span class="p">);</span>
+</span><span class='line'>    <span class="kd">var</span> <span class="nx">url</span> <span class="o">=</span> <span class="s1">&#39;${pageContext.request.contextPath}/dbtableDef/addModelDb?${_csrf.parameterName}=${_csrf.token}&#39;</span><span class="p">;</span>
+</span><span class='line'>    <span class="nx">$</span><span class="p">.</span><span class="nx">postJSON</span><span class="p">(</span><span class="nx">url</span><span class="p">,</span> <span class="nx">addObj</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">result</span><span class="p">){</span>
+</span><span class='line'>        <span class="k">if</span><span class="p">(</span><span class="nx">result</span><span class="p">.</span><span class="nx">state</span> <span class="o">==</span> <span class="mi">1</span><span class="p">){</span>
+</span><span class='line'>            <span class="nx">$</span><span class="p">.</span><span class="nx">messager</span><span class="p">.</span><span class="nx">alert</span><span class="p">(</span><span class="s2">&quot;成功&quot;</span><span class="p">,</span> <span class="nx">result</span><span class="p">.</span><span class="nx">message</span><span class="p">);</span>
+</span><span class='line'>        <span class="p">}</span><span class="k">else</span><span class="p">{</span>
+</span><span class='line'>            <span class="nx">$</span><span class="p">.</span><span class="nx">messager</span><span class="p">.</span><span class="nx">alert</span><span class="p">(</span><span class="s2">&quot;失败&quot;</span><span class="p">,</span> <span class="nx">result</span><span class="p">.</span><span class="nx">message</span><span class="p">);</span>
+</span><span class='line'>        <span class="p">}</span>
+</span><span class='line'>    <span class="p">});</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'>
+</span><span class='line'><span class="nx">$</span><span class="p">.</span><span class="nx">postJSON</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">url</span><span class="p">,</span> <span class="nx">data</span><span class="p">,</span> <span class="nx">callback</span><span class="p">)</span> <span class="p">{</span>
+</span><span class='line'>    <span class="k">return</span> <span class="nx">jQuery</span><span class="p">.</span><span class="nx">ajax</span><span class="p">({</span>
+</span><span class='line'>        <span class="s1">&#39;type&#39;</span><span class="o">:</span> <span class="s1">&#39;POST&#39;</span><span class="p">,</span>
+</span><span class='line'>        <span class="s1">&#39;url&#39;</span><span class="o">:</span> <span class="nx">url</span><span class="p">,</span>
+</span><span class='line'>        <span class="s1">&#39;contentType&#39;</span><span class="o">:</span> <span class="s1">&#39;application/json&#39;</span><span class="p">,</span>
+</span><span class='line'>        <span class="s1">&#39;data&#39;</span><span class="o">:</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">data</span><span class="p">),</span>
+</span><span class='line'>        <span class="s1">&#39;dataType&#39;</span><span class="o">:</span> <span class="s1">&#39;json&#39;</span><span class="p">,</span>
+</span><span class='line'>        <span class="s1">&#39;success&#39;</span><span class="o">:</span> <span class="nx">callback</span><span class="p">,</span>
+</span><span class='line'>        <span class="s1">&#39;error&#39;</span><span class="o">:</span> <span class="nx">errorHandler</span>
+</span><span class='line'>    <span class="p">});</span>
+</span><span class='line'><span class="p">};</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>后台 spring mvc 代码如下</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='java'><span class='line'><span class="nd">@RequestMapping</span><span class="o">(</span><span class="n">value</span> <span class="o">=</span> <span class="s">&quot;addModelDb&quot;</span><span class="o">,</span> <span class="n">method</span> <span class="o">=</span> <span class="n">RequestMethod</span><span class="o">.</span><span class="na">POST</span><span class="o">,</span> <span class="n">produces</span> <span class="o">=</span> <span class="s">&quot;application/json&quot;</span><span class="o">)</span>
+</span><span class='line'><span class="nd">@ResponseBody</span>
+</span><span class='line'><span class="kd">public</span> <span class="n">Message</span> <span class="nf">addModelDb</span><span class="o">(</span><span class="nd">@RequestBody</span> <span class="n">DbtableDef</span> <span class="n">dbtableDef</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">Exception</span> <span class="o">{</span>
+</span><span class='line'>    <span class="k">try</span> <span class="o">{</span>
+</span><span class='line'>        <span class="k">this</span><span class="o">.</span><span class="na">dbtableDefService</span><span class="o">.</span><span class="na">insert</span><span class="o">(</span><span class="n">dbtableDef</span><span class="o">);</span>
+</span><span class='line'>        <span class="k">return</span> <span class="k">new</span> <span class="nf">Message</span><span class="o">(</span><span class="n">Message</span><span class="o">.</span><span class="na">SUCCESS</span><span class="o">,</span> <span class="s">&quot;保存数据模型成功！&quot;</span><span class="o">);</span>
+</span><span class='line'>    <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="n">Exception</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+</span><span class='line'>        <span class="n">e</span><span class="o">.</span><span class="na">printStackTrace</span><span class="o">();</span>
+</span><span class='line'>        <span class="k">return</span> <span class="k">new</span> <span class="nf">Message</span><span class="o">(</span><span class="n">Message</span><span class="o">.</span><span class="na">FAILED</span><span class="o">,</span> <span class="s">&quot;保存数据模型失败！&quot;</span><span class="o">);</span>
+</span><span class='line'>    <span class="o">}</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>实体 bean 记得添加名为 hiddenDbtableColDefs 的 list 对象，并设置 get 和 set 方法</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='java'><span class='line'><span class="nd">@Transient</span>
+</span><span class='line'><span class="kd">private</span> <span class="n">List</span><span class="o">&lt;</span><span class="n">DbtableColDef</span><span class="o">&gt;</span> <span class="n">hiddenDbtableColDefs</span><span class="o">;</span>
+</span><span class='line'>
+</span><span class='line'><span class="kd">public</span> <span class="n">List</span><span class="o">&lt;</span><span class="n">DbtableColDef</span><span class="o">&gt;</span> <span class="nf">getHiddenDbtableColDefs</span><span class="o">()</span> <span class="o">{</span>
+</span><span class='line'>    <span class="k">return</span> <span class="n">hiddenDbtableColDefs</span><span class="o">;</span>
+</span><span class='line'><span class="o">}</span>
+</span><span class='line'>
+</span><span class='line'><span class="kd">public</span> <span class="kt">void</span> <span class="nf">setHiddenDbtableColDefs</span><span class="o">(</span><span class="n">List</span><span class="o">&lt;</span><span class="n">DbtableColDef</span><span class="o">&gt;</span> <span class="n">hiddenDbtableColDefs</span><span class="o">)</span> <span class="o">{</span>
+</span><span class='line'>    <span class="k">this</span><span class="o">.</span><span class="na">hiddenDbtableColDefs</span> <span class="o">=</span> <span class="n">hiddenDbtableColDefs</span><span class="o">;</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>说到这里，相信大部分人都会了，如果有什么疑问可以留言</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[分布式文件上传跨域解决方案]]></title>
